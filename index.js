@@ -41,31 +41,32 @@ function defaultPathBuilder(spec, descriptions, results, capabilities) {
  *     (Object) containig meta data to store along with a screenshot
  */
 function defaultMetaDataBuilder(spec, descriptions, results, capabilities) {
+	var passed = spec.passedExpectations
+		, failed = spec.failedExpectations;
+
 	var metaData = {
 			description: descriptions.join(' ')
-			, passed: results.passed()
-			, os: capabilities.caps_.platform
-			, sessionId: capabilities.caps_['webdriver.remote.sessionid']
+			, passed: _.every(passed.concat(failed), function(it){return it.passed})
+            , duration: spec.totalTime
+            , os: capabilities.caps_.platform
             , browser: {
 				name: capabilities.caps_.browserName
 				, version: capabilities.caps_.version
 			}
 		};
 
-    if(results.items_.length > 0) {
-		var result = results.items_[0];
-		if(!results.passed()){
-			var failedItem = _.where(results.items_,{passed_: false})[0];
-			if(failedItem){
-				metaData.message = failedItem.message || 'Failed';
-				metaData.trace = failedItem.trace? (failedItem.trace.stack || 'No Stack trace information') : 'No Stack trace information';
-			}
+	if(failed.length > 0) {
+		var messages = _.pluck(failed, 'message'),
+		      stacks = _.pluck(failed, 'stack');
 
-		}else{
-			metaData.message = result.message || 'Passed';
-			metaData.trace = result.trace.stack;
-		}
+		//report all failures
+		metaData.message = messages.length && messages.join('\n') || 'Failed';
+		metaData.trace = stacks.length && stacks.join('\n') || 'No Stack trace information';
 
+	} else if(passed.length > 0) {
+		var result = passed[0];
+		metaData.message = result && result.message || 'Passed';
+		metaData.trace = result && result.stack;
 	}
 
 	return metaData;
@@ -110,7 +111,10 @@ function ScreenshotReporter(options) {
 	}
 
 	this.pathBuilder = options.pathBuilder || defaultPathBuilder;
+	this.disableMetaData = options.disableMetaData || false;
+	this.combinedJsonFileName = options.combinedJsonFileName || 'combined.json';
 	this.docTitle = options.docTitle || 'Generated test report';
+	this.docHeader = options.docHeader || 'Test Results';
 	this.docName = options.docName || 'report.html';
 	this.metaDataBuilder = options.metaDataBuilder || defaultMetaDataBuilder;
 	this.preserveDirectory = options.preserveDirectory || false;
@@ -123,8 +127,11 @@ function ScreenshotReporter(options) {
  		takeScreenShotsForSkippedSpecs: this.takeScreenShotsForSkippedSpecs,
  		metaDataBuilder: this.metaDataBuilder,
  		pathBuilder: this.pathBuilder,
+ 		disableMetaData: this.disableMetaData,
+ 		combinedJsonFileName: this.combinedJsonFileName,
  		baseDirectory: this.baseDirectory,
  		docTitle: this.docTitle,
+ 		docHeader: this.docHeader,
  		docName: this.docName,
  		cssOverrideFile: this.cssOverrideFile
  	};
@@ -133,6 +140,91 @@ function ScreenshotReporter(options) {
  		util.removeDirectory(this.finalOptions.baseDirectory);
  	}
 }
+
+var currentSuite, currentSpec, startTime;
+
+ScreenshotReporter.prototype.jasmineStarted = function () {
+    //console.log("##test[progressStart 'Running Jasmine Tests']");
+    var self = this;
+	/** Function: jasmineStarted - This was previously in specDone, but that was causing async issues
+	 *
+	 * Parameters:
+	 *     (Object) spec - The test spec to report.
+	 */
+    afterEach (function(next){
+
+        var results = spec = currentSpec;
+        if(!self.takeScreenShotsForSkippedSpecs && results.skipped) {
+            return;
+        }
+
+        spec.totalTime = new Date().getTime() - startTime;
+        browser.takeScreenshot().then(function (png) {
+            browser.getCapabilities().then(function (capabilities) {
+                var descriptions = util.gatherDescriptions(
+                        currentSuite
+                        , [spec.description]
+                    )
+
+                    , baseName = self.pathBuilder(
+                        spec
+                        , descriptions
+                        , results
+                        , capabilities
+                    )
+                    , metaData = self.metaDataBuilder(
+                        spec
+                        , descriptions
+                        , results
+                        , capabilities
+                    )
+
+                    , screenShotFile = baseName + '.png'
+                    , metaFile = baseName + '.json'
+                    , screenShotPath = path.join(self.baseDirectory, screenShotFile)
+                    , metaDataPath = path.join(self.baseDirectory, metaFile)
+
+                // pathBuilder can return a subfoldered path too. So extract the
+                // directory path without the baseName
+                    , directory = path.dirname(screenShotPath);
+
+                metaData.screenShotFile = screenShotFile;
+                mkdirp(directory, function(err) {
+                    if(err) {
+                        throw new Error('Could not create directory ' + directory);
+                    } else {
+                        util.addMetaData(metaData, metaDataPath, descriptions, self.finalOptions);
+
+                        if(!(self.takeScreenShotsOnlyForFailedSpecs && results.status === 'passed')) {
+                            util.storeScreenShot(png, screenShotPath);
+                        }
+                        util.storeMetaData(metaData, metaDataPath);
+                    }
+					next();
+                });
+            });
+        });
+    });
+};
+
+ScreenshotReporter.prototype.jasmineDone = function () {
+    //console.log("##test[progressFinish 'Running Jasmine Tests']");
+};
+
+ScreenshotReporter.prototype.suiteStarted = function (suite) {
+	currentSuite = suite;
+    //console.log("##START[testSuiteStarted name='" + (suite.fullName) + "']");
+};
+
+ScreenshotReporter.prototype.suiteDone = function (suite) {
+    //console.log("##test[testSuiteFinished name='" + (suite.fullName) + "']");
+};
+
+ScreenshotReporter.prototype.specStarted = function (spec) {
+	currentSpec = spec;
+    startTime = new Date().getTime();
+    //console.log("##START[testStarted name='" + (spec.description) + "' captureStandardOutput='true']");
+};
 
 /** Function: reportSpecResults
  * Called by Jasmine when reporting results for a test spec. It triggers the
@@ -146,17 +238,23 @@ function reportSpecResults(spec) {
 	/* global browser */
 	var self = this
 		, results = spec.results()
+		, takeScreenshot
+		, finishReport;
 
 	if(!self.takeScreenShotsForSkippedSpecs && results.skipped) {
 		return;
 	}
 
-	browser.takeScreenshot().then(function (png) {
+	takeScreenshot = !(self.takeScreenShotsOnlyForFailedSpecs && results.passed());
+
+	finishReport = function(png) {
+
 		browser.getCapabilities().then(function (capabilities) {
 			var descriptions = util.gatherDescriptions(
 					spec.suite
 					, [spec.description]
 				)
+
 
 				, baseName = self.pathBuilder(
 					spec
@@ -186,15 +284,30 @@ function reportSpecResults(spec) {
 					throw new Error('Could not create directory ' + directory);
 				} else {
 					util.addMetaData(metaData, metaDataPath, descriptions, self.finalOptions);
-					if(!(self.takeScreenShotsOnlyForFailedSpecs && results.passed())) {
+					if(takeScreenshot) {
 						util.storeScreenShot(png, screenShotPath);
 					}
-					util.storeMetaData(metaData, metaDataPath);
+					if (!self.finalOptions.disableMetaData) {
+						util.storeMetaData(metaData, metaDataPath);
+					}
 				}
 			});
 		});
-	});
 
+	};
+
+	if (!takeScreenshot) {
+		return finishReport();
+	}
+
+	//take the final screenshot
+	browser.takeScreenshot().then(function (png) {
+		finishReport(png);
+	});
+};
+
+ScreenshotReporter.prototype.specDone = function (spec) {
+    //console.log("##test[testFinished name='" + (spec.description) + "']");
 };
 
 module.exports = ScreenshotReporter;
