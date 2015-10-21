@@ -49,28 +49,24 @@ function defaultMetaDataBuilder(spec, descriptions, results, capabilities) {
 			, passed: _.every(passed.concat(failed), function(it){return it.passed})
             , duration: spec.totalTime
             , os: capabilities.caps_.platform
-            //, sessionId: capabilities.caps_['webdriver.remote.sessionid']
             , browser: {
 				name: capabilities.caps_.browserName
 				, version: capabilities.caps_.version
 			}
 		};
 
-	if(passed.length > 0 || failed.length > 0) {
+	if(failed.length > 0) {
+		var messages = _.pluck(failed, 'message'),
+		      stacks = _.pluck(failed, 'stack');
+
+		//report all failures
+		metaData.message = messages.length && messages.join('\n') || 'Failed';
+		metaData.trace = stacks.length && stacks.join('\n') || 'No Stack trace information';
+
+	} else if(passed.length > 0) {
 		var result = passed[0];
-
-		if(failed.length > 0) {
-			var messages = _.pluck(failed, 'message'),
-			      stacks = _.pluck(failed, 'stack');
-
-			//report all failures
-			metaData.message = messages.length && messages.join('\n') || 'Failed';
-			metaData.trace = stacks.length && stacks.join('\n') || 'No Stack trace information';
-
-		} else {
-			metaData.message = result && result.message || 'Passed';
-			metaData.trace = result && result.stack;
-		}
+		metaData.message = result && result.message || 'Passed';
+		metaData.trace = result && result.stack;
 	}
 
 	return metaData;
@@ -150,15 +146,12 @@ var currentSuite, currentSpec, startTime;
 ScreenshotReporter.prototype.jasmineStarted = function () {
     //console.log("##test[progressStart 'Running Jasmine Tests']");
     var self = this;
-
+	/** Function: jasmineStarted - This was previously in specDone, but that was causing async issues
+	 *
+	 * Parameters:
+	 *     (Object) spec - The test spec to report.
+	 */
     afterEach (function(next){
-        /** Function: specDone - THIS WAS in specDone, but that was causing async issues
-         * Called by Jasmine when a test spec is done. It triggers the
-         * whole screenshot capture process and stores any relevant information.
-         *
-         * Parameters:
-         *     (Object) spec - The test spec to report.
-         */
 
         var results = spec = currentSpec;
         if(!self.takeScreenShotsForSkippedSpecs && results.skipped) {
@@ -207,8 +200,8 @@ ScreenshotReporter.prototype.jasmineStarted = function () {
                         }
                         util.storeMetaData(metaData, metaDataPath);
                     }
+					next();
                 });
-                next();
             });
         });
     });
@@ -303,18 +296,15 @@ function reportSpecResults(spec) {
 
 	};
 
-	if (takeScreenshot) {
-
-		browser.takeScreenshot().then(function (png) {
-			finishReport(png);
-		});
-
-	} else {
-
-		finishReport();
-
+	if (!takeScreenshot) {
+		return finishReport();
 	}
-}
+
+	//take the final screenshot
+	browser.takeScreenshot().then(function (png) {
+		finishReport(png);
+	});
+};
 
 ScreenshotReporter.prototype.specDone = function (spec) {
     //console.log("##test[testFinished name='" + (spec.description) + "']");
