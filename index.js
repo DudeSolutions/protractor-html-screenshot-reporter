@@ -46,14 +46,14 @@ function defaultMetaDataBuilder(spec, descriptions, results, capabilities) {
 
 		var metaData = {
 				description: descriptions.join(' ')
-				, passed: _.every(passed.concat(failed), function(it){return it.passed})
-	            , duration: spec.totalTime
-	            , os:  capabilities.platform
-	            , browser: {
-					name: capabilities.browserName
-					, version: capabilities.version
-				}
-			};
+			, passed: _.every(passed.concat(failed), function(it){return it.passed})
+      , duration: spec.totalTime
+      , os:  capabilities.platform
+      , browser: {
+				name: capabilities.browserName
+				, version: capabilities.version
+			}
+		};
 
 	if(failed.length > 0) {
 		var messages = _.pluck(failed, 'message'),
