@@ -44,16 +44,16 @@ function defaultMetaDataBuilder(spec, descriptions, results, capabilities) {
 	var passed = spec.passedExpectations
 		, failed = spec.failedExpectations;
 
-	var metaData = {
-			description: descriptions.join(' ')
-			, passed: _.every(passed.concat(failed), function(it){return it.passed})
-            , duration: spec.totalTime
-            , os: capabilities.caps_.platform
-            , browser: {
-				name: capabilities.caps_.browserName
-				, version: capabilities.caps_.version
-			}
-		};
+		var metaData = {
+				description: descriptions.join(' ')
+				, passed: _.every(passed.concat(failed), function(it){return it.passed})
+	            , duration: spec.totalTime
+	            , os:  capabilities.platform
+	            , browser: {
+					name: capabilities.browserName
+					, version: capabilities.version
+				}
+			};
 
 	if(failed.length > 0) {
 		var messages = _.pluck(failed, 'message'),
