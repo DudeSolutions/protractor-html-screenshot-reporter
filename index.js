@@ -48,10 +48,10 @@ function defaultMetaDataBuilder(spec, descriptions, results, capabilities) {
 				description: descriptions.join(' ')
 			, passed: _.every(passed.concat(failed), function(it){return it.passed})
       , duration: spec.totalTime
-      , os:  capabilities.platform
+      , os:  capabilities.get('platform')
       , browser: {
-				name: capabilities.browserName
-				, version: capabilities.version
+				name: capabilities.get('browserName')
+				, version: capabilities.get('version')
 			}
 		};
 
