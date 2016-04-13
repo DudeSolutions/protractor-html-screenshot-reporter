@@ -85,7 +85,7 @@ exports.config = {
                 totalDateString = currentDate.getDate()+'-'+ monthMap[currentDate.getMonth()+1]+ '-'+(currentDate.getYear()+1900) + 
                                       '-'+ currentTimeInHours+'h-' + currentDate.getMinutes()+'m';
 
-            return path.join(totalDateString,capabilities.caps_.browserName, descriptions.join('-'));
+            return path.join(totalDateString,capabilities.get('browserName'), descriptions.join('-'));
          }
       }));
   },
